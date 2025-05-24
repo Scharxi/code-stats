@@ -13,11 +13,19 @@ var fileExtensions = []string{".go", ".js", ".ts", ".html", ".css", ".json", ".m
 type Counter struct {
 	mu    sync.Mutex
 	total int64
+	byExt map[string]int64
 }
 
-func (c *Counter) Inc() {
+func NewCounter() *Counter {
+	return &Counter{
+		byExt: make(map[string]int64),
+	}
+}
+
+func (c *Counter) Inc(ext string) {
 	c.mu.Lock()
 	c.total++
+	c.byExt[ext]++
 	c.mu.Unlock()
 }
 
@@ -27,15 +35,30 @@ func (c *Counter) Value() int64 {
 	return c.total
 }
 
+func (c *Counter) ExtCounts() map[string]int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Return a copy to avoid race conditions
+	result := make(map[string]int64, len(c.byExt))
+	for k, v := range c.byExt {
+		result[k] = v
+	}
+	return result
+}
+
 func main() {
 	dir := "/Users/lucas/Development" // Change to your target directory
 
 	var wg sync.WaitGroup
-	counter := Counter{}
-	scanDir(dir, &wg, &counter)
+	counter := NewCounter()
+	scanDir(dir, &wg, counter)
 	wg.Wait()
 	fmt.Println("All files processed.")
 	fmt.Println("Total files:", counter.Value())
+	fmt.Println("Counts by extension:")
+	for ext, count := range counter.ExtCounts() {
+		fmt.Printf("%s: %d\n", ext, count)
+	}
 }
 
 func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
@@ -56,11 +79,11 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
 			}(fullPath)
 		} else if slices.Contains(fileExtensions, ext) {
 			wg.Add(1)
-			go func(p string) {
+			go func(p, ext string) {
 				defer wg.Done()
-				counter.Inc()
+				counter.Inc(ext)
 				fmt.Println("Processing:", p)
-			}(fullPath)
+			}(fullPath, ext)
 		}
 	}
 }
