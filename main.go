@@ -108,10 +108,10 @@ func shouldIgnoreDir(name string) bool {
 	return false
 }
 
-func runStats(targetDir string) {
+func runStats(targetDir string, extensions []string) {
 	var wg sync.WaitGroup
 	counter := NewCounter()
-	scanDir(targetDir, &wg, counter)
+	scanDir(targetDir, &wg, counter, extensions)
 	wg.Wait()
 	fmt.Println("All files processed.")
 	fmt.Println("Total files:", counter.Value())
@@ -137,6 +137,7 @@ func runStats(targetDir string) {
 }
 
 func main() {
+	var extFlag string
 	var rootCmd = &cobra.Command{
 		Use:   "code-stats [directory]",
 		Short: "Count files, lines, comments, and more in a codebase.",
@@ -146,9 +147,25 @@ func main() {
 			if len(args) > 0 {
 				dir = args[0]
 			}
-			runStats(dir)
+			extensions := fileExtensions
+			if extFlag != "" {
+				// Split and normalize extensions
+				parts := strings.Split(extFlag, ",")
+				extensions = make([]string, 0, len(parts))
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						if !strings.HasPrefix(p, ".") {
+							p = "." + p
+						}
+						extensions = append(extensions, p)
+					}
+				}
+			}
+			runStats(dir, extensions)
 		},
 	}
+	rootCmd.Flags().StringVarP(&extFlag, "ext", "e", "", "Comma-separated list of file extensions to include (e.g. 'go,js,ts')")
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -203,7 +220,7 @@ func countCommentLines(path, ext string) int {
 	return commentLines
 }
 
-func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
+func scanDir(dir string, wg *sync.WaitGroup, counter *Counter, extensions []string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		fmt.Println("Error reading directory:", dir, err)
@@ -220,9 +237,9 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
 			wg.Add(1)
 			go func(p string) {
 				defer wg.Done()
-				scanDir(p, wg, counter)
+				scanDir(p, wg, counter, extensions)
 			}(fullPath)
-		} else if slices.Contains(fileExtensions, ext) {
+		} else if slices.Contains(extensions, ext) {
 			wg.Add(1)
 			go func(p, ext string) {
 				defer wg.Done()
