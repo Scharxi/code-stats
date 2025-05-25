@@ -37,6 +37,13 @@ Whether you're curious about your project's size, want to track documentation co
 
 ---
 
+## 📦 Downloads
+
+- [Linux (amd64)](https://github.com/Scharxi/code-stats/releases/download/v1.0.0/code-stats-linux-amd64)
+- [macOS (amd64)](https://github.com/Scharxi/code-stats/releases/download/v1.0.0/code-stats-darwin-amd64)
+- [macOS (arm64)](https://github.com/Scharxi/code-stats/releases/download/v1.0.0/code-stats-darwin-arm64)
+- [Windows (amd64)](https://github.com/Scharxi/code-stats/releases/download/v1.0.0/code-stats-windows-amd64.exe)
+
 ## 🛠️ Installation
 
 Clone the repo and build with Go (requires Go 1.21+):
@@ -141,4 +148,4 @@ Pull requests and issues are welcome! If you have ideas for new features or impr
 
 ---
 
-**Made with ❤️ by [Your Name](https://github.com/yourusername)** 
+**Made with ❤️ by [Scharxi](https://github.com/Scharxi)** 
