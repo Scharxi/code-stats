@@ -11,7 +11,8 @@ import (
 	"bxfferoverflow.me/code-stats/parser"
 )
 
-var fileExtensions = []string{".go", ".js", ".ts", ".html", ".css", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".ini", ".env", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".pssc", ".psscx", ".psscy", ".psscz", ".pssc0", ".pssc1", ".pssc2", ".pssc3", ".pssc4", ".pssc5", ".pssc6", ".pssc7", ".pssc8", ".pssc9", ".pssc10"}
+var fileExtensions = []string{".go", ".rs", ".js", ".ts", ".html", ".css", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".ini", ".env", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".pssc", ".psscx", ".psscy", ".psscz", ".pssc0", ".pssc1", ".pssc2", ".pssc3", ".pssc4", ".pssc5", ".pssc6", ".pssc7", ".pssc8", ".pssc9", ".pssc10"}
+var ignoreDirs = []string{".git", ".idea", ".vscode", ".DS_Store", "build", "dist", "node_modules", "vendor", "tmp", "logs", "cache", ".next", ".venv"}
 
 type Counter struct {
 	mu                sync.Mutex
@@ -84,6 +85,15 @@ func (c *Counter) ExtCounts() map[string]int64 {
 		result[k] = v
 	}
 	return result
+}
+
+func shouldIgnoreDir(name string) bool {
+	for _, ignore := range ignoreDirs {
+		if name == ignore {
+			return true
+		}
+	}
+	return false
 }
 
 func main() {
@@ -170,6 +180,9 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
 		fullPath := filepath.Join(dir, entry.Name())
 		ext := filepath.Ext(fullPath)
 		if entry.IsDir() {
+			if shouldIgnoreDir(entry.Name()) {
+				continue
+			}
 			wg.Add(1)
 			go func(p string) {
 				defer wg.Done()
