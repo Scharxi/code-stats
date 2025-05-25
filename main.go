@@ -7,16 +7,19 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"bxfferoverflow.me/code-stats/parser"
 )
 
 var fileExtensions = []string{".go", ".js", ".ts", ".html", ".css", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".ini", ".env", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".pssc", ".psscx", ".psscy", ".psscz", ".pssc0", ".pssc1", ".pssc2", ".pssc3", ".pssc4", ".pssc5", ".pssc6", ".pssc7", ".pssc8", ".pssc9", ".pssc10"}
 
 type Counter struct {
-	mu         sync.Mutex
-	total      int64
-	emptyLines int64
-	linesByExt map[string]int64
-	byExt      map[string]int64
+	mu                sync.Mutex
+	total             int64
+	emptyLines        int64
+	commentLinesByExt map[string]int64
+	linesByExt        map[string]int64
+	byExt             map[string]int64
 }
 
 func (c *Counter) EmptyLines() int64 {
@@ -27,18 +30,20 @@ func (c *Counter) EmptyLines() int64 {
 
 func NewCounter() *Counter {
 	return &Counter{
-		byExt:      make(map[string]int64),
-		linesByExt: make(map[string]int64),
-		emptyLines: 0,
+		byExt:             make(map[string]int64),
+		linesByExt:        make(map[string]int64),
+		commentLinesByExt: make(map[string]int64),
+		emptyLines:        0,
 	}
 }
 
-func (c *Counter) Inc(ext string, lines int, emptyLines int) {
+func (c *Counter) Inc(ext string, lines int, emptyLines int, commentLines int) {
 	c.mu.Lock()
 	c.total++
 	c.byExt[ext]++
 	c.linesByExt[ext] += int64(lines)
 	c.emptyLines += int64(emptyLines)
+	c.commentLinesByExt[ext] += int64(commentLines)
 	c.mu.Unlock()
 }
 
@@ -62,6 +67,12 @@ func (c *Counter) LinesByExt() map[string]int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.linesByExt
+}
+
+func (c *Counter) CommentLinesByExt() map[string]int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.commentLinesByExt
 }
 
 func (c *Counter) ExtCounts() map[string]int64 {
@@ -90,6 +101,10 @@ func main() {
 	}
 	fmt.Println("Lines by extension:")
 	for ext, count := range counter.LinesByExt() {
+		fmt.Printf("%s: %d\n", ext, count)
+	}
+	fmt.Println("Comment lines by extension:")
+	for ext, count := range counter.CommentLinesByExt() {
 		fmt.Printf("%s: %d\n", ext, count)
 	}
 	fmt.Println("Total lines:", counter.Lines())
@@ -122,6 +137,28 @@ func countEmptyLines(path string) int {
 	return emptyLines
 }
 
+func countCommentLines(path, ext string) int {
+	parser, ok := parser.CommentParsers[ext]
+	if !ok {
+		return 0
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Println("Error reading file:", path, err)
+		return 0
+	}
+
+	lines := strings.Split(string(content), "\n")
+	commentLines := 0
+	for _, line := range lines {
+		if parser.IsComment(line) {
+			commentLines++
+		}
+	}
+	return commentLines
+}
+
 func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -144,7 +181,8 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
 				defer wg.Done()
 				lines := countLines(p)
 				emptyLines := countEmptyLines(p)
-				counter.Inc(ext, lines, emptyLines)
+				commentLines := countCommentLines(p, ext)
+				counter.Inc(ext, lines, emptyLines, commentLines)
 				fmt.Println("Processing:", p, "Lines:", lines)
 			}(fullPath, ext)
 		}
