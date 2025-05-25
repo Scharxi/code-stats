@@ -14,22 +14,31 @@ var fileExtensions = []string{".go", ".js", ".ts", ".html", ".css", ".json", ".m
 type Counter struct {
 	mu         sync.Mutex
 	total      int64
+	emptyLines int64
 	linesByExt map[string]int64
 	byExt      map[string]int64
+}
+
+func (c *Counter) EmptyLines() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.emptyLines
 }
 
 func NewCounter() *Counter {
 	return &Counter{
 		byExt:      make(map[string]int64),
 		linesByExt: make(map[string]int64),
+		emptyLines: 0,
 	}
 }
 
-func (c *Counter) Inc(ext string, lines int) {
+func (c *Counter) Inc(ext string, lines int, emptyLines int) {
 	c.mu.Lock()
 	c.total++
 	c.byExt[ext]++
 	c.linesByExt[ext] += int64(lines)
+	c.emptyLines += int64(emptyLines)
 	c.mu.Unlock()
 }
 
@@ -84,6 +93,7 @@ func main() {
 		fmt.Printf("%s: %d\n", ext, count)
 	}
 	fmt.Println("Total lines:", counter.Lines())
+	fmt.Println("Empty lines:", counter.EmptyLines())
 }
 
 func countLines(path string) int {
@@ -93,6 +103,23 @@ func countLines(path string) int {
 		return 0
 	}
 	return len(strings.Split(string(content), "\n"))
+}
+
+func countEmptyLines(path string) int {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Println("Error reading file:", path, err)
+		return 0
+	}
+
+	lines := strings.Split(string(content), "\n")
+	emptyLines := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			emptyLines++
+		}
+	}
+	return emptyLines
 }
 
 func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
@@ -116,7 +143,8 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter) {
 			go func(p, ext string) {
 				defer wg.Done()
 				lines := countLines(p)
-				counter.Inc(ext, lines)
+				emptyLines := countEmptyLines(p)
+				counter.Inc(ext, lines, emptyLines)
 				fmt.Println("Processing:", p, "Lines:", lines)
 			}(fullPath, ext)
 		}
