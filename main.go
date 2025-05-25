@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"bxfferoverflow.me/code-stats/parser"
+	"github.com/spf13/cobra"
 )
 
 var fileExtensions = []string{".go", ".rs", ".js", ".ts", ".html", ".css", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".ini", ".env", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".pssc", ".psscx", ".psscy", ".psscz", ".pssc0", ".pssc1", ".pssc2", ".pssc3", ".pssc4", ".pssc5", ".pssc6", ".pssc7", ".pssc8", ".pssc9", ".pssc10"}
@@ -107,12 +108,10 @@ func shouldIgnoreDir(name string) bool {
 	return false
 }
 
-func main() {
-	dir := "/Users/lucas/Development" // Change to your target directory
-
+func runStats(targetDir string) {
 	var wg sync.WaitGroup
 	counter := NewCounter()
-	scanDir(dir, &wg, counter)
+	scanDir(targetDir, &wg, counter)
 	wg.Wait()
 	fmt.Println("All files processed.")
 	fmt.Println("Total files:", counter.Value())
@@ -135,6 +134,25 @@ func main() {
 	fmt.Println("Total lines:", counter.Lines())
 	fmt.Println("Empty lines:", counter.EmptyLines())
 	fmt.Println("Average lines per file:", counter.GetAverageLinesPerFile())
+}
+
+func main() {
+	var rootCmd = &cobra.Command{
+		Use:   "code-stats [directory]",
+		Short: "Count files, lines, comments, and more in a codebase.",
+		Args:  cobra.MaximumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			dir := "."
+			if len(args) > 0 {
+				dir = args[0]
+			}
+			runStats(dir)
+		},
+	}
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }
 
 func countLines(path string) int {
