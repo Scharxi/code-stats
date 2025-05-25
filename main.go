@@ -99,8 +99,8 @@ func (c *Counter) ExtCounts() map[string]int64 {
 	return result
 }
 
-func shouldIgnoreDir(name string) bool {
-	for _, ignore := range ignoreDirs {
+func shouldIgnoreDir(name string, ignoreList []string) bool {
+	for _, ignore := range ignoreList {
 		if name == ignore {
 			return true
 		}
@@ -108,10 +108,10 @@ func shouldIgnoreDir(name string) bool {
 	return false
 }
 
-func runStats(targetDir string, extensions []string) {
+func runStats(targetDir string, extensions []string, ignoreList []string) {
 	var wg sync.WaitGroup
 	counter := NewCounter()
-	scanDir(targetDir, &wg, counter, extensions)
+	scanDir(targetDir, &wg, counter, extensions, ignoreList)
 	wg.Wait()
 	fmt.Println("All files processed.")
 	fmt.Println("Total files:", counter.Value())
@@ -138,6 +138,7 @@ func runStats(targetDir string, extensions []string) {
 
 func main() {
 	var extFlag string
+	var ignoreFlag string
 	var rootCmd = &cobra.Command{
 		Use:   "code-stats [directory]",
 		Short: "Count files, lines, comments, and more in a codebase.",
@@ -162,10 +163,22 @@ func main() {
 					}
 				}
 			}
-			runStats(dir, extensions)
+			ignoreList := ignoreDirs
+			if ignoreFlag != "" {
+				parts := strings.Split(ignoreFlag, ",")
+				ignoreList = make([]string, 0, len(parts))
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						ignoreList = append(ignoreList, p)
+					}
+				}
+			}
+			runStats(dir, extensions, ignoreList)
 		},
 	}
 	rootCmd.Flags().StringVarP(&extFlag, "ext", "e", "", "Comma-separated list of file extensions to include (e.g. 'go,js,ts')")
+	rootCmd.Flags().StringVarP(&ignoreFlag, "ignore", "i", "", "Comma-separated list of directories to ignore (e.g. 'node_modules,dist,.git')")
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -220,7 +233,7 @@ func countCommentLines(path, ext string) int {
 	return commentLines
 }
 
-func scanDir(dir string, wg *sync.WaitGroup, counter *Counter, extensions []string) {
+func scanDir(dir string, wg *sync.WaitGroup, counter *Counter, extensions []string, ignoreList []string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		fmt.Println("Error reading directory:", dir, err)
@@ -231,13 +244,13 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter, extensions []stri
 		fullPath := filepath.Join(dir, entry.Name())
 		ext := filepath.Ext(fullPath)
 		if entry.IsDir() {
-			if shouldIgnoreDir(entry.Name()) {
+			if shouldIgnoreDir(entry.Name(), ignoreList) {
 				continue
 			}
 			wg.Add(1)
 			go func(p string) {
 				defer wg.Done()
-				scanDir(p, wg, counter, extensions)
+				scanDir(p, wg, counter, extensions, ignoreList)
 			}(fullPath)
 		} else if slices.Contains(extensions, ext) {
 			wg.Add(1)
