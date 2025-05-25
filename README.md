@@ -111,14 +111,7 @@ Suppress all console output (for CI):
 
 ### CLI Table
 
-```
-EXTENSION   FILE COUNT   TOTAL LINES   COMMENT LINES   EMPTY LINES   AVG LINES / FILE
-.go         12           1,234         210             123           102.83
-.js         5            500           50              40            100.00
-
-TOTAL FILES   TOTAL LINES   TOTAL COMMENT LINES   TOTAL EMPTY LINES   AVG LINES / FILE
-17            1,734         260                   163                 102.00
-```
+![ASCII Table Report Screenshot](./screenshots/report_table.png)
 
 ### HTML Report
 
