@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -110,10 +113,32 @@ func shouldIgnoreDir(name string, ignoreList []string) bool {
 	return false
 }
 
-func runStats(targetDir string, extensions []string, ignoreList []string, useColor bool, showProgress bool) {
+type ExportStats struct {
+	Extension       string  `json:"extension"`
+	FileCount       int64   `json:"file_count"`
+	TotalLines      int64   `json:"total_lines"`
+	CommentLines    int64   `json:"comment_lines"`
+	EmptyLines      int64   `json:"empty_lines"`
+	AvgLinesPerFile float64 `json:"avg_lines_per_file"`
+}
+
+type ExportSummary struct {
+	TotalFiles        int64   `json:"total_files"`
+	TotalLines        int64   `json:"total_lines"`
+	TotalCommentLines int64   `json:"total_comment_lines"`
+	TotalEmptyLines   int64   `json:"total_empty_lines"`
+	AvgLinesPerFile   float64 `json:"avg_lines_per_file"`
+}
+
+type ExportData struct {
+	Stats   []ExportStats `json:"stats"`
+	Summary ExportSummary `json:"summary"`
+}
+
+func runStats(targetDir string, extensions []string, ignoreList []string, useColor bool, showProgress bool, exportJSON, exportCSV bool, outputFile string, verbose bool) {
 	var wg sync.WaitGroup
 	counter := NewCounter()
-	scanDirWithProgress(targetDir, &wg, counter, extensions, ignoreList, showProgress)
+	scanDirWithProgress(targetDir, &wg, counter, extensions, ignoreList, showProgress && !verbose)
 	wg.Wait()
 
 	extCounts := counter.ExtCounts()
@@ -122,10 +147,70 @@ func runStats(targetDir string, extensions []string, ignoreList []string, useCol
 	totalFiles := counter.Value()
 	totalLines := counter.Lines()
 	totalEmpty := counter.EmptyLines()
-
 	totalComment := int64(0)
 	for _, v := range commentByExt {
 		totalComment += v
+	}
+
+	// Prepare export data
+	var exportStats []ExportStats
+	for ext := range extCounts {
+		avg := float64(0)
+		if extCounts[ext] > 0 {
+			avg = float64(linesByExt[ext]) / float64(extCounts[ext])
+		}
+		exportStats = append(exportStats, ExportStats{
+			Extension:       ext,
+			FileCount:       extCounts[ext],
+			TotalLines:      linesByExt[ext],
+			CommentLines:    commentByExt[ext],
+			EmptyLines:      0, // not tracked per ext
+			AvgLinesPerFile: avg,
+		})
+	}
+	exportSummary := ExportSummary{
+		TotalFiles:        totalFiles,
+		TotalLines:        totalLines,
+		TotalCommentLines: totalComment,
+		TotalEmptyLines:   totalEmpty,
+		AvgLinesPerFile:   counter.GetAverageLinesPerFile(),
+	}
+	exportData := ExportData{
+		Stats:   exportStats,
+		Summary: exportSummary,
+	}
+
+	if exportJSON && outputFile != "" {
+		f, err := os.Create(outputFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating JSON file: %v\n", err)
+			return
+		}
+		defer f.Close()
+		enc := json.NewEncoder(f)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(exportData); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing JSON: %v\n", err)
+		}
+		if !verbose {
+			fmt.Printf("Exported stats as JSON to %s\n", outputFile)
+		}
+	}
+	if exportCSV && outputFile != "" {
+		f, err := os.Create(outputFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating CSV file: %v\n", err)
+			return
+		}
+		defer f.Close()
+		writeStatsCSV(f, exportStats, exportSummary)
+		if !verbose {
+			fmt.Printf("Exported stats as CSV to %s\n", outputFile)
+		}
+	}
+
+	if verbose {
+		return
 	}
 
 	// Extension-Tabelle
@@ -184,11 +269,40 @@ func runStats(targetDir string, extensions []string, ignoreList []string, useCol
 	sumT.Render()
 }
 
+func writeStatsCSV(w io.Writer, stats []ExportStats, summary ExportSummary) {
+	csvw := csv.NewWriter(w)
+	csvw.Write([]string{"Extension", "File Count", "Total Lines", "Comment Lines", "Empty Lines", "Avg Lines/File"})
+	for _, s := range stats {
+		csvw.Write([]string{
+			s.Extension,
+			fmt.Sprintf("%d", s.FileCount),
+			fmt.Sprintf("%d", s.TotalLines),
+			fmt.Sprintf("%d", s.CommentLines),
+			fmt.Sprintf("%d", s.EmptyLines),
+			fmt.Sprintf("%.2f", s.AvgLinesPerFile),
+		})
+	}
+	csvw.Write([]string{})
+	csvw.Write([]string{"Total Files", "Total Lines", "Total Comment Lines", "Total Empty Lines", "Avg Lines/File"})
+	csvw.Write([]string{
+		fmt.Sprintf("%d", summary.TotalFiles),
+		fmt.Sprintf("%d", summary.TotalLines),
+		fmt.Sprintf("%d", summary.TotalCommentLines),
+		fmt.Sprintf("%d", summary.TotalEmptyLines),
+		fmt.Sprintf("%.2f", summary.AvgLinesPerFile),
+	})
+	csvw.Flush()
+}
+
 func main() {
 	var extFlag string
 	var ignoreFlag string
 	var colorFlag bool
 	var progressFlag bool
+	var jsonFlag bool
+	var csvFlag bool
+	var outputFile string
+	var verboseFlag bool
 	var rootCmd = &cobra.Command{
 		Use:   "code-stats [directory]",
 		Short: "Count files, lines, comments, and more in a codebase.",
@@ -224,13 +338,17 @@ func main() {
 					}
 				}
 			}
-			runStats(dir, extensions, ignoreList, colorFlag, progressFlag)
+			runStats(dir, extensions, ignoreList, colorFlag, progressFlag, jsonFlag, csvFlag, outputFile, verboseFlag)
 		},
 	}
 	rootCmd.Flags().StringVarP(&extFlag, "ext", "e", "", "Comma-separated list of file extensions to include (e.g. 'go,js,ts')")
 	rootCmd.Flags().StringVarP(&ignoreFlag, "ignore", "i", "", "Comma-separated list of directories to ignore (e.g. 'node_modules,dist,.git')")
 	rootCmd.Flags().BoolVarP(&colorFlag, "color", "c", false, "Enable colored output")
 	rootCmd.Flags().BoolVarP(&progressFlag, "progress", "p", false, "Show progress output for each processed file")
+	rootCmd.Flags().BoolVar(&jsonFlag, "json", false, "Export stats as JSON (use with -o)")
+	rootCmd.Flags().BoolVar(&csvFlag, "csv", false, "Export stats as CSV (use with -o)")
+	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file for JSON or CSV export")
+	rootCmd.Flags().BoolVar(&verboseFlag, "verbose", false, "Disable all console output except errors and export confirmation")
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
