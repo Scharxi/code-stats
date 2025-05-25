@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"bxfferoverflow.me/code-stats/parser"
+	"github.com/fatih/color"
+	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
 
@@ -108,37 +110,85 @@ func shouldIgnoreDir(name string, ignoreList []string) bool {
 	return false
 }
 
-func runStats(targetDir string, extensions []string, ignoreList []string) {
+func runStats(targetDir string, extensions []string, ignoreList []string, useColor bool, showProgress bool) {
 	var wg sync.WaitGroup
 	counter := NewCounter()
-	scanDir(targetDir, &wg, counter, extensions, ignoreList)
+	scanDirWithProgress(targetDir, &wg, counter, extensions, ignoreList, showProgress)
 	wg.Wait()
-	fmt.Println("All files processed.")
-	fmt.Println("Total files:", counter.Value())
-	fmt.Println("Counts by extension:")
-	for ext, count := range counter.ExtCounts() {
-		fmt.Printf("%s: %d\n", ext, count)
+
+	extCounts := counter.ExtCounts()
+	linesByExt := counter.LinesByExt()
+	commentByExt := counter.CommentLinesByExt()
+	totalFiles := counter.Value()
+	totalLines := counter.Lines()
+	totalEmpty := counter.EmptyLines()
+
+	totalComment := int64(0)
+	for _, v := range commentByExt {
+		totalComment += v
 	}
-	fmt.Println("Average lines per file by extension:")
-	for ext := range counter.LinesByExt() {
-		fmt.Printf("%s: %f\n", ext, counter.GetAverageLinesPerFileByExt(ext))
+
+	// Extension-Tabelle
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	extHeader := table.Row{"Extension", "File Count", "Total Lines", "Comment Lines", "Empty Lines", "Avg Lines/File"}
+	if useColor {
+		cyan := color.New(color.FgCyan, color.Bold).SprintFunc()
+		for i, h := range extHeader {
+			if s, ok := h.(string); ok {
+				extHeader[i] = cyan(s)
+			}
+		}
 	}
-	fmt.Println("Lines by extension:")
-	for ext, count := range counter.LinesByExt() {
-		fmt.Printf("%s: %d\n", ext, count)
+	t.AppendHeader(extHeader)
+	for ext := range extCounts {
+		avg := float64(0)
+		if extCounts[ext] > 0 {
+			avg = float64(linesByExt[ext]) / float64(extCounts[ext])
+		}
+		row := table.Row{
+			ext,
+			extCounts[ext],
+			linesByExt[ext],
+			commentByExt[ext],
+			0, // Empty lines per ext not tracked
+			fmt.Sprintf("%.2f", avg),
+		}
+		if useColor {
+			row[0] = color.New(color.FgGreen, color.Bold).Sprint(row[0])
+		}
+		t.AppendRow(row)
 	}
-	fmt.Println("Comment lines by extension:")
-	for ext, count := range counter.CommentLinesByExt() {
-		fmt.Printf("%s: %d\n", ext, count)
+	t.Render()
+
+	// Gesamtsummen-Tabelle
+	sumT := table.NewWriter()
+	sumT.SetOutputMirror(os.Stdout)
+	sumHeader := table.Row{"Total Files", "Total Lines", "Total Comment Lines", "Total Empty Lines", "Avg Lines/File"}
+	if useColor {
+		magenta := color.New(color.FgMagenta, color.Bold).SprintFunc()
+		for i, h := range sumHeader {
+			if s, ok := h.(string); ok {
+				sumHeader[i] = magenta(s)
+			}
+		}
 	}
-	fmt.Println("Total lines:", counter.Lines())
-	fmt.Println("Empty lines:", counter.EmptyLines())
-	fmt.Println("Average lines per file:", counter.GetAverageLinesPerFile())
+	sumT.AppendHeader(sumHeader)
+	sumT.AppendRow(table.Row{
+		totalFiles,
+		totalLines,
+		totalComment,
+		totalEmpty,
+		fmt.Sprintf("%.2f", counter.GetAverageLinesPerFile()),
+	})
+	sumT.Render()
 }
 
 func main() {
 	var extFlag string
 	var ignoreFlag string
+	var colorFlag bool
+	var progressFlag bool
 	var rootCmd = &cobra.Command{
 		Use:   "code-stats [directory]",
 		Short: "Count files, lines, comments, and more in a codebase.",
@@ -174,11 +224,13 @@ func main() {
 					}
 				}
 			}
-			runStats(dir, extensions, ignoreList)
+			runStats(dir, extensions, ignoreList, colorFlag, progressFlag)
 		},
 	}
 	rootCmd.Flags().StringVarP(&extFlag, "ext", "e", "", "Comma-separated list of file extensions to include (e.g. 'go,js,ts')")
 	rootCmd.Flags().StringVarP(&ignoreFlag, "ignore", "i", "", "Comma-separated list of directories to ignore (e.g. 'node_modules,dist,.git')")
+	rootCmd.Flags().BoolVarP(&colorFlag, "color", "c", false, "Enable colored output")
+	rootCmd.Flags().BoolVarP(&progressFlag, "progress", "p", false, "Show progress output for each processed file")
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -233,7 +285,7 @@ func countCommentLines(path, ext string) int {
 	return commentLines
 }
 
-func scanDir(dir string, wg *sync.WaitGroup, counter *Counter, extensions []string, ignoreList []string) {
+func scanDirWithProgress(dir string, wg *sync.WaitGroup, counter *Counter, extensions []string, ignoreList []string, showProgress bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		fmt.Println("Error reading directory:", dir, err)
@@ -250,7 +302,7 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter, extensions []stri
 			wg.Add(1)
 			go func(p string) {
 				defer wg.Done()
-				scanDir(p, wg, counter, extensions, ignoreList)
+				scanDirWithProgress(p, wg, counter, extensions, ignoreList, showProgress)
 			}(fullPath)
 		} else if slices.Contains(extensions, ext) {
 			wg.Add(1)
@@ -260,7 +312,9 @@ func scanDir(dir string, wg *sync.WaitGroup, counter *Counter, extensions []stri
 				emptyLines := countEmptyLines(p)
 				commentLines := countCommentLines(p, ext)
 				counter.Inc(ext, lines, emptyLines, commentLines)
-				fmt.Println("Processing:", p, "Lines:", lines)
+				if showProgress {
+					fmt.Printf("Processing: %s Lines: %d\n", p, lines)
+				}
 			}(fullPath, ext)
 		}
 	}
