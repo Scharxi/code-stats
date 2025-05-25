@@ -17,6 +17,7 @@ var ignoreDirs = []string{".git", ".idea", ".vscode", ".DS_Store", "build", "dis
 type Counter struct {
 	mu                sync.Mutex
 	total             int64
+	totalFiles        int64
 	emptyLines        int64
 	commentLinesByExt map[string]int64
 	linesByExt        map[string]int64
@@ -35,17 +36,23 @@ func NewCounter() *Counter {
 		linesByExt:        make(map[string]int64),
 		commentLinesByExt: make(map[string]int64),
 		emptyLines:        0,
+		totalFiles:        0,
 	}
 }
 
 func (c *Counter) Inc(ext string, lines int, emptyLines int, commentLines int) {
 	c.mu.Lock()
 	c.total++
+	c.totalFiles++
 	c.byExt[ext]++
 	c.linesByExt[ext] += int64(lines)
 	c.emptyLines += int64(emptyLines)
 	c.commentLinesByExt[ext] += int64(commentLines)
 	c.mu.Unlock()
+}
+
+func (c *Counter) GetAverageLinesPerFile() float64 {
+	return float64(c.Lines()) / float64(c.totalFiles)
 }
 
 func (c *Counter) Value() int64 {
@@ -119,6 +126,7 @@ func main() {
 	}
 	fmt.Println("Total lines:", counter.Lines())
 	fmt.Println("Empty lines:", counter.EmptyLines())
+	fmt.Println("Average lines per file:", counter.GetAverageLinesPerFile())
 }
 
 func countLines(path string) int {
