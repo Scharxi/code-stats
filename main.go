@@ -404,7 +404,7 @@ func writeStatsHTML(filename string, stats []ExportStats, summary ExportSummary)
 <body>
     <header>
         <h1>Code Stats Report</h1>
-        <div>Automatic generated &bull; {{ now }}</div>
+        <div>Automatically generated &bull; {{ now }}</div>
     </header>
     <main>
         <div class="card">
