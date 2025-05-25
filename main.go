@@ -55,6 +55,10 @@ func (c *Counter) GetAverageLinesPerFile() float64 {
 	return float64(c.Lines()) / float64(c.totalFiles)
 }
 
+func (c *Counter) GetAverageLinesPerFileByExt(ext string) float64 {
+	return float64(c.LinesByExt()[ext]) / float64(c.byExt[ext])
+}
+
 func (c *Counter) Value() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -115,6 +119,10 @@ func main() {
 	fmt.Println("Counts by extension:")
 	for ext, count := range counter.ExtCounts() {
 		fmt.Printf("%s: %d\n", ext, count)
+	}
+	fmt.Println("Average lines per file by extension:")
+	for ext := range counter.LinesByExt() {
+		fmt.Printf("%s: %f\n", ext, counter.GetAverageLinesPerFileByExt(ext))
 	}
 	fmt.Println("Lines by extension:")
 	for ext, count := range counter.LinesByExt() {
